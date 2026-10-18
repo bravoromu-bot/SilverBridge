@@ -1,0 +1,12 @@
+*.pkg
+*.plugin/
+backups/
+DesiredMIDIDriver.plugin/
+build-factory-uuid.txt
+midi-detail
+midi-listener
+midi-send
+packet-test
+plugin-smoke
+silver-bridge
+.DS_Store

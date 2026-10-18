@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>org.silverbridge.midi</string>
+  <key>CFBundleName</key><string>MPC Studio Silver Bridge</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleSignature</key><string>????</string>
+  <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
+  <key>CFBundleExecutable</key><string>SilverMIDIDriver</string>
+  <key>CFBundlePackageType</key><string>BNDL</string>
+  <key>CFBundleVersion</key><string>0.1.0</string>
+  <key>CFPlugInDynamicRegistration</key><false/>
+  <key>CFPlugInFactories</key><dict>
+    <key>64D5B604-D8CC-4BAB-A579-10DAA184EA89</key><string>SilverDriverFactory</string>
+  </dict>
+  <key>CFPlugInTypes</key><dict>
+    <key>ECDE9574-0FE4-11D4-BB1A-0050E4CEA526</key>
+    <array><string>64D5B604-D8CC-4BAB-A579-10DAA184EA89</string></array>
+  </dict>
+</dict></plist>
