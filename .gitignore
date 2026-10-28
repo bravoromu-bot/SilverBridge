@@ -10,3 +10,5 @@ packet-test
 plugin-smoke
 silver-bridge
 .DS_Store
+launchpad-bridge
+Launchpad Bridge ON-OFF.command

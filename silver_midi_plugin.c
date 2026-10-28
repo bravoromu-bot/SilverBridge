@@ -14,6 +14,9 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 /* USB OUT: the stock Akai driver (PID 0x0013 entry, HandleInput/PrepareOutput)
    uses the same 4-byte cable/CIN framing as the IN path; bulk OUT is 0x01. */
@@ -82,19 +85,58 @@ static void forward_midi(void *context, uint8_t cable, const uint8_t *midi, size
         MIDIReceived(driver->sources[cable], list);
 }
 
+static void set_offline(SilverDriver *driver, int offline) {
+    if (driver->device) MIDIObjectSetIntegerProperty(driver->device, kMIDIPropertyOffline, offline);
+}
+
+/* (Re)open and claim the Silver. The USB handle goes stale when the Mac sleeps or the cable is replugged. */
+static int connect_usb(SilverDriver *driver) {
+    int ok;
+    pthread_mutex_lock(&out_lock);
+    ok = driver->usb_device != NULL;
+    if (!ok && driver->usb_context) {
+        libusb_device_handle *h = libusb_open_device_with_vid_pid(driver->usb_context, 0x09e8, 0x0013);
+        if (h && libusb_claim_interface(h, 1) == 0) { driver->usb_device = h; driver->claimed = 1; ok = 1; }
+        else if (h) libusb_close(h);
+    }
+    pthread_mutex_unlock(&out_lock);
+    return ok;
+}
+
+static void drop_usb(SilverDriver *driver) {
+    pthread_mutex_lock(&out_lock);
+    if (driver->usb_device) {
+        if (driver->claimed) libusb_release_interface(driver->usb_device, 1);
+        libusb_close(driver->usb_device);
+    }
+    driver->usb_device = NULL;
+    driver->claimed = 0;
+    pthread_mutex_unlock(&out_lock);
+}
+
 static void *read_usb(void *context) {
     SilverDriver *driver = context;
     while (atomic_load(&driver->reading)) {
+        if (!driver->usb_device) {
+            if (!connect_usb(driver)) {
+                for (int i = 0; i < 4 && atomic_load(&driver->reading); ++i) usleep(250000);
+                continue;
+            }
+            set_offline(driver, 0);
+        }
         unsigned char bytes[64];
         int received = 0;
         int rc = libusb_bulk_transfer(driver->usb_device, 0x82, bytes, sizeof(bytes),
                                       &received, 250);
         if (rc == LIBUSB_ERROR_TIMEOUT) continue;
-        if (rc) break;
+        if (rc) {                       /* device gone (sleep, unplug): drop the handle and retry */
+            drop_usb(driver);
+            set_offline(driver, 1);
+            continue;
+        }
         if (received > 0) trace("usb-in", bytes, (size_t)received, 0);
         if (received > 0) usb_midi_decode(bytes, (size_t)received, forward_midi, driver);
     }
-    atomic_store(&driver->reading, false);
     return NULL;
 }
 
@@ -180,10 +222,7 @@ static OSStatus driver_start(MIDIDriverRef self, MIDIDeviceListRef list) {
             MIDIEndpointSetRefCons(destination, (void *)(uintptr_t)i, NULL);
     }
     if (libusb_init(&driver->usb_context)) return noErr;
-    driver->usb_device = libusb_open_device_with_vid_pid(driver->usb_context, 0x09e8, 0x0013);
-    if (!driver->usb_device) { stop_usb(driver); return noErr; }
-    if (libusb_claim_interface(driver->usb_device, 1)) { stop_usb(driver); return noErr; }
-    driver->claimed = 1;
+    connect_usb(driver);
     atomic_store(&driver->reading, true);
     if (!pthread_create(&driver->reader, NULL, read_usb, driver)) driver->reader_started = 1;
     else stop_usb(driver);
@@ -200,6 +239,32 @@ static OSStatus driver_stop(MIDIDriverRef self) {
 
 static OSStatus driver_configure(MIDIDriverRef self, MIDIDeviceRef device) {
     (void)self; (void)device; return noErr;
+}
+
+/* LED tap: MPC lights the Silver pads with channel-10 CC messages (0xB9, controller = pad note,
+   value = colour). A copy of each is sent over loopback UDP so companion tools (launchpad-bridge)
+   can mirror them. Nothing leaves the machine. */
+#define LED_TAP_PORT 47531
+static void led_tap(const uint8_t *data, size_t length) {
+    static int sock = -2;
+    static struct sockaddr_in dest;
+    if (sock == -2) {
+        sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if (sock >= 0) fcntl(sock, F_SETFL, O_NONBLOCK);
+        memset(&dest, 0, sizeof dest);
+        dest.sin_family = AF_INET;
+        dest.sin_port = htons(LED_TAP_PORT);
+        inet_pton(AF_INET, "127.0.0.1", &dest.sin_addr);
+    }
+    if (sock < 0) return;
+    uint8_t out[3 * 32];
+    size_t n = 0;
+    for (size_t i = 0; i + 2 < length && n + 3 <= sizeof out; ) {
+        if (data[i] == 0xb9) { memcpy(out + n, data + i, 3); n += 3; i += 3; }
+        else if (data[i] == 0xf0) { while (i < length && data[i] != 0xf7) ++i; ++i; }
+        else ++i;
+    }
+    if (n) sendto(sock, out, n, 0, (struct sockaddr *)&dest, sizeof dest);
 }
 
 static OSStatus driver_send(MIDIDriverRef self, const MIDIPacketList *list,
@@ -221,12 +286,14 @@ static OSStatus driver_send(MIDIDriverRef self, const MIDIPacketList *list,
     }
     SilverDriver *driver = instance(self);
     OSStatus status = noErr;
-    if (!list || !driver->usb_device || !driver->claimed) return -4;
+    if (!list) return -4;
     uintptr_t cable = (uintptr_t)ref1;
     if (cable >= 3) return -4;
     pthread_mutex_lock(&out_lock);
+    if (!driver->usb_device || !driver->claimed) { pthread_mutex_unlock(&out_lock); return -4; }
     const MIDIPacket *packet = &list->packet[0];
     for (UInt32 i = 0; i < list->numPackets; ++i) {
+        led_tap(packet->data, packet->length);
         uint8_t buffer[1024];
         int n = usb_midi_encode((uint8_t)cable, packet->data, packet->length, buffer, sizeof(buffer));
         /* Stock PrepareOutput zero-pads every transfer to the full 64-byte packet. */

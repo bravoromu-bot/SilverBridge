@@ -55,6 +55,31 @@ Requires Xcode command line tools and `brew install libusb pkg-config`.
 Tracing: create `/private/tmp/silverbridge-trace` (or set `SILVERBRIDGE_TRACE`) and restart MIDIServer;
 traffic is written to `/private/tmp/mpc-silver-midi-out.log`.
 
+## Optional: Launchpad Pro MK3 colour feedback
+
+`Launchpad Bridge.command` (source: `launchpad_bridge.c`) lights a Novation Launchpad Pro MK3 in Programmer layout:
+
+- **Silver pads** — hitting a pad on the MPC Studio lights the matching Launchpad pad.
+- **MPC pad lights** — whatever MPC lights on the Silver (notes you play or the sequence plays) is mirrored: the driver
+  sends a local copy of MPC's pad-LED messages to the bridge (loopback UDP, never leaves the machine).
+  Colours are mirrored exactly (RGB). Default MPC drum pads map to a 4x4 block at the bottom-left of the Launchpad.
+- **MPC output** — notes MPC sends to the virtual port `SilverBridge Launchpad` (choose it in MPC's MIDI settings
+  or as a track's MIDI output) light the grid.
+
+Colour follows velocity (green, yellow, red); notes map onto the 8x8 grid in blocks of 64.
+Each source can be switched off: `./launchpad-bridge --no-silver`, `--no-mpc` or `--no-leds`.
+`--native-note` keeps the Launchpad in its own Note mode and lights it from the notes MPC plays
+(channel-16 note injection on the DAW port); use it for plug-in tracks. In MPC, set the track's Out to
+`SilverBridge Launchpad` (not `None`): the pad-light mirror is not used in this mode because it reports pad notes, not pitches. Close the window to stop; the Launchpad returns to
+its normal layout. Only tested with the Pro MK3.
+
+## Separate package: Launchpad bridge (`SilverBridgeLaunchpadMK3.pkg`)
+
+The Launchpad bridge ships as its own installer, independent of the MPC driver pkg (build: `./make_launchpad_pkg.sh`).
+It installs a login agent and a control script in `/Library/Application Support/SilverBridgeLaunchpadMK3/`.
+Without the SilverBridge driver it runs in the Launchpad's native Note mode (no pad mirror, no auto-switch).
+The driver does not need the bridge either.
+
 ## Legal
 
 Written from scratch for hardware interoperability. It contains no code from Akai Professional or
@@ -110,6 +135,31 @@ entre MPC et l'appareil : relisez-le avant de le partager.
 ## Compilation
 
 Xcode Command Line Tools et `brew install libusb pkg-config` requis. Puis `./make_pkg.sh 0.3.0`.
+
+## Optionnel : retour de couleur sur Launchpad Pro MK3
+
+`Launchpad Bridge.command` (source : `launchpad_bridge.c`) allume un Novation Launchpad Pro MK3 en mode Programmer :
+
+- **Pads de la Silver** : frapper un pad de la MPC Studio allume le pad correspondant du Launchpad.
+- **Lumières des pads de MPC** : ce que MPC allume sur la Silver (notes jouées ou lues par la séquence) est reproduit : le pilote
+  envoie une copie locale de ces messages au pont (UDP sur la boucle locale, rien ne sort de la machine).
+  Les couleurs sont reproduites à l'identique (RVB). Les pads de batterie MPC par défaut occupent un bloc 4x4 en bas à gauche du Launchpad.
+- **Sortie MPC** : les notes envoyées par MPC au port virtuel `SilverBridge Launchpad` (à choisir dans les réglages MIDI de MPC
+  ou en sortie MIDI d'une piste) allument la grille.
+
+La couleur dépend de la vélocité (vert, jaune, rouge) ; les notes sont réparties sur la grille 8x8 par blocs de 64.
+Chaque source peut être désactivée : `./launchpad-bridge --no-silver`, `--no-mpc` ou `--no-leds`.
+`--native-note` laisse le Launchpad dans son propre mode Note et l'allume avec les notes jouées par MPC (injection de notes
+canal 16 sur le port DAW) ; à utiliser pour les pistes plug-in. Dans MPC, régler la sortie (Out) de la piste sur
+`SilverBridge Launchpad` (pas `None`) : le miroir des lumières de pads n'est pas utilisé dans ce mode, car il indique des notes de pads et non des hauteurs. Fermer la fenêtre pour arrêter ; le Launchpad revient à son
+mode normal. Testé uniquement avec le Pro MK3.
+
+## Paquet séparé : pont Launchpad (`SilverBridgeLaunchpadMK3.pkg`)
+
+Le pont Launchpad est livré dans son propre installeur, indépendant du pkg du pilote MPC (construction : `./make_launchpad_pkg.sh`).
+Il installe un agent de démarrage et un script de contrôle dans `/Library/Application Support/SilverBridgeLaunchpadMK3/`.
+Sans le pilote SilverBridge, il reste dans le mode Note natif du Launchpad (ni miroir des pads, ni bascule automatique).
+Le pilote n'a pas besoin du pont non plus.
 
 ## Mentions légales
 
